@@ -19,6 +19,7 @@ func main() {
 		ServiceURL:       serviceAddress,
 		RequiredServices: make([]registry.ServiceName, 0),
 		ServiceUpdateURL: serviceAddress + "/services",
+		HeartbeatURL:     serviceAddress + "/heartbeat",
 	}
 
 	ctx, err := service.Start(
