@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,7 +10,7 @@ import (
 	"sync"
 )
 
-const ServerPort = ":6667"
+const ServerPort = ":6666"
 const ServicesURL = "http://localhost" + ServerPort + "/services"
 
 type registry struct {
@@ -26,12 +27,96 @@ func (r *registry) add(reg Registration) error {
 	r.mutex.Lock()
 	r.registrations = append(r.registrations, reg)
 	r.mutex.Unlock()
+	err := r.SendRequiredService(reg)
+	r.notify(patch{
+		Added: []patchEntry{
+			{
+				Name: reg.ServiceName,
+				URL:  reg.ServiceURL,
+			},
+		},
+	})
+	return err
+}
+
+func (r registry) notify(fullPatch patch) {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	for _, reg := range r.registrations {
+		go func(reg Registration) {
+			for _, reqService := range reg.RequiredServices {
+				var p patch
+				sendUpdate := false
+				for _, added := range fullPatch.Added {
+					if added.Name == reqService {
+						p.Added = append(p.Added, added)
+						sendUpdate = true
+					}
+				}
+				for _, removed := range fullPatch.Removed {
+					if removed.Name == reqService {
+						p.Removed = append(p.Removed, removed)
+						sendUpdate = true
+					}
+				}
+				if sendUpdate {
+					err := r.sendPatch(p, reg.ServiceUpdateURL)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+				}
+			}
+		}(reg)
+	}
+}
+
+func (r registry) SendRequiredService(reg Registration) error {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	var p patch
+	for _, serviceReg := range r.registrations {
+		for _, reqService := range reg.RequiredServices {
+			if serviceReg.ServiceName == reqService {
+				p.Added = append(p.Added, patchEntry{
+					Name: serviceReg.ServiceName,
+					URL:  serviceReg.ServiceURL,
+				})
+			}
+		}
+	}
+
+	err := r.sendPatch(p, reg.ServiceUpdateURL)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r registry) sendPatch(p patch, url string) error {
+	d, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = http.Post(url, "application/json", bytes.NewBuffer(d))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (r *registry) remove(url string) error {
 	for i := range r.registrations {
 		if r.registrations[i].ServiceURL == url {
+			r.notify(patch{
+				Removed: []patchEntry{
+					{
+						Name: r.registrations[i].ServiceName,
+						URL:  r.registrations[i].ServiceURL,
+					},
+				},
+			})
 			r.mutex.Lock()
 			r.registrations = append(r.registrations[:i], r.registrations[i+1:]...)
 			r.mutex.Unlock()
@@ -45,9 +130,9 @@ type RegistryService struct{}
 
 func (s RegistryService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("Request received")
+	defer r.Body.Close()
 	switch r.Method {
 	case http.MethodPost:
-		defer r.Body.Close()
 		dec := json.NewDecoder(r.Body)
 		var r Registration
 		err := dec.Decode(&r)
@@ -64,7 +149,6 @@ func (s RegistryService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case http.MethodDelete:
-		defer r.Body.Close()
 		payload, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			log.Println(err)
