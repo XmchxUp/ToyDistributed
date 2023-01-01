@@ -26,7 +26,6 @@ func Run(destination string) {
 
 func RegisterHandlers() {
 	http.HandleFunc("/log", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
 		switch r.Method {
 		case http.MethodPost:
 			msg, err := ioutil.ReadAll(r.Body)

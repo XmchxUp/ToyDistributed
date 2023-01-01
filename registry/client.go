@@ -37,6 +37,7 @@ func RegisterService(r Registration) error {
 	if err != nil {
 		return err
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to register service. Registery service "+
@@ -55,6 +56,7 @@ func ShutdownService(url string) error {
 	if err != nil {
 		return err
 	}
+	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to deregister service. Registry "+
 			"service responded with code %v", res.StatusCode)
@@ -65,7 +67,6 @@ func ShutdownService(url string) error {
 type serviceUpdateHandler struct{}
 
 func (suh serviceUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return

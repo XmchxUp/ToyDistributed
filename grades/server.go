@@ -20,10 +20,9 @@ type studentsHandler struct{}
 
 // /students
 // /students/{id}
-// /students/{id}/addgrade
+// /students/{id}/grades
 func (sh studentsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	pathSegments := strings.Split(r.URL.Path, "/")
-	defer r.Body.Close()
 	switch len(pathSegments) {
 	case 2:
 		sh.getAll(w, r)
